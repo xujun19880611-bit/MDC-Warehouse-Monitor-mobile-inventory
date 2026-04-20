@@ -12,13 +12,12 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def save_to_gsheets(loc, status, staff):
     """将盘点结果同步到 Google Sheets"""
-    # 读取当前表格数据
     try:
+        # ttl=0 确保获取云端最新数据
         existing_data = conn.read(ttl=0)
     except:
         existing_data = pd.DataFrame(columns=["loc", "real_status", "staff", "update_time"])
     
-    # 准备新数据
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_entry = pd.DataFrame([{
         "loc": loc,
@@ -27,21 +26,20 @@ def save_to_gsheets(loc, status, staff):
         "update_time": now
     }])
     
-    # 合并并去重（同一库位以最后一次盘点为准）
     if not existing_data.empty:
         updated_data = pd.concat([existing_data, new_entry], ignore_index=True)
+        # 同一库位仅保留最后一次盘点记录
         updated_data = updated_data.drop_duplicates(subset=['loc'], keep='last')
     else:
         updated_data = new_entry
         
-    # 更新到云端
     conn.update(data=updated_data)
-    st.cache_data.clear() # 清除缓存以刷新视图
+    st.cache_data.clear() 
 
 def get_audited_dict():
-    """获取已盘点库位的状态字典"""
+    """从 Google Sheets 获取已盘点状态"""
     try:
-        df = conn.read(ttl=5) # 5秒缓存平衡性能
+        df = conn.read(ttl=5) 
         if df.empty: return {}
         return dict(zip(df['loc'], df['real_status']))
     except:
@@ -86,7 +84,9 @@ st.markdown("""
     .status-used { background-color: #3498db !important; color: white; border: none; }
     .status-empty { background-color: #2ecc71 !important; color: white; border: none; }
     .status-disabled { background-color: #95a5a6 !important; color: white; border: none; }
+    /* 选中库位高亮 */
     .status-selected { border: 3px solid #FF4B4B !important; transform: scale(1.15); z-index: 100; box-shadow: 0 0 12px rgba(255, 75, 75, 0.9); }
+    /* 已盘点标记 */
     .status-audited { position: relative; }
     .status-audited::after { content: '✅'; position: absolute; top: -6px; right: -6px; font-size: 10px; }
     .total-card { background: linear-gradient(135deg, #1e3c72, #2a5298); padding: 15px; border-radius: 10px; color: white; text-align: center; margin-bottom: 20px; }
@@ -96,7 +96,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. SGF 数据加载 ---
+# --- 5. SGF 数据加载 (修正 NameError) ---
 @st.cache_data(ttl=60)
 def load_sgf_data():
     if not os.path.exists("SGF.csv"): return None, None
@@ -110,8 +110,13 @@ def load_sgf_data():
         for c in ['L','W','H']: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
         df['Vol'] = (df['L'] * df['W'] * df['H']) / 1000000
         
+        # 基础库位过滤
         master = df[(~df['Loc'].str.contains('-', na=False)) & (df['Loc'].str.startswith(('A','B','C','D','E'))) & (df['L']>0)].drop_duplicates('Loc')
-        l_map, wh_stats = {}, {wh: {'t_v':0.0, 'u_v':0.0, 'total_bins':0, 'used_bins':0} for wh in 'ABCDE'}
+        
+        # 初始化字典 (修正变量名为 wh_stats 以匹配 return)
+        l_map = {}
+        wh_stats = {wh: {'t_v':0.0, 'u_v':0.0, 'total_bins':0, 'used_bins':0} for wh in 'ABCDE'}
+        
         for _, r in master.iterrows():
             wh = r['Loc'][0].upper()
             l_map[r['Loc']] = {'Items':[], 'Status':r['Status'], 'Vol':r['Vol'], 'WH':wh, 'Aisle':r['Loc'][0:3], 'Col':r['Loc'][3:5], 'Lvl':r['Loc'][5:7]}
@@ -119,57 +124,65 @@ def load_sgf_data():
                 wh_stats[wh]['t_v'] += r['Vol']
                 wh_stats[wh]['total_bins'] += 1
         
+        # 库存关联
         inv = df[df['Qty'] > 0]
         for _, r in inv.iterrows():
-            if r['Loc'] in l_map: l_map[r['Loc']]['Items'].append(f"{r['SKU']}:{int(r['Qty'])}")
+            if r['Loc'] in l_map: 
+                l_map[r['Loc']]['Items'].append(f"{r['SKU']}:{int(r['Qty'])}")
         
+        # 统计利用率
         for k, v in l_map.items():
             if len(v['Items']) > 0 and v['Status'] == "可用": 
-                wh_stats[v['WH']]['u_v'] += v['Vol']; wh_stats[v['WH']]['used_bins'] += 1
-        return l_map, wh_stats
-    except: return None, None
+                wh_stats[v['WH']]['u_v'] += v['Vol']
+                wh_stats[v['WH']]['used_bins'] += 1
+                
+        return l_map, wh_stats # 此处变量名已统一
+    except: 
+        return None, None
 
 l_map, wh_stats = load_sgf_data()
 audited_data = get_audited_dict()
 
-# --- 6. 侧边栏联动 ---
+# --- 6. 界面渲染 ---
 if l_map:
     lang_choice = st.sidebar.radio("Língua / 语言", ["中文", "Português"])
     L = LANG_DICT["CN"] if lang_choice == "中文" else LANG_DICT["PT"]
     
-    st.sidebar.header("👤 " + L["staff_name"])
-    staff = st.sidebar.text_input("Name", value="Staff_01")
-    
-    st.sidebar.divider()
-    st.sidebar.subheader("🎯 " + L["audit_btn"])
-    
-    # 三级联动
-    selected_wh = st.sidebar.selectbox(L["wh_sel"], sorted(list(wh_stats.keys())))
-    aisle_options = sorted(list(set(v['Aisle'] for v in l_map.values() if v['WH'] == selected_wh)))
-    selected_aisle = st.sidebar.selectbox(L["aisle_sel"], aisle_options)
-    bin_options = sorted([loc for loc in l_map.keys() if loc.startswith(selected_aisle)])
-    loc_input = st.sidebar.selectbox(L["bin_sel"], [""] + bin_options)
+    with st.sidebar:
+        st.header("👤 " + L["staff_name"])
+        staff = st.text_input("Name", value="Staff_01")
+        st.divider()
+        st.subheader("🎯 " + L["audit_btn"])
+        
+        # 三级联动选择器
+        selected_wh = st.selectbox(L["wh_sel"], sorted(list(wh_stats.keys())))
+        aisle_options = sorted(list(set(v['Aisle'] for v in l_map.values() if v['WH'] == selected_wh)))
+        selected_aisle = st.selectbox(L["aisle_sel"], aisle_options)
+        bin_options = sorted([loc for loc in l_map.keys() if loc.startswith(selected_aisle)])
+        loc_input = st.selectbox(L["bin_sel"], [""] + bin_options)
 
-    if loc_input:
-        has_cargo = len(l_map[loc_input]['Items']) > 0
-        st.sidebar.info(f"系统记录: {'有货' if has_cargo else '空闲'}")
-        new_status = st.sidebar.radio("实盘结果:", [L["status_empty"], L["status_used"], L["status_error"]])
-        if st.sidebar.button(L["audit_btn"]):
-            with st.spinner("正在同步..."):
-                save_to_gsheets(loc_input, new_status, staff)
-                st.sidebar.success(L["submit_ok"])
-                st.rerun()
+        if loc_input:
+            has_cargo = len(l_map[loc_input]['Items']) > 0
+            st.info(f"系统记录: {'有货' if has_cargo else '空闲'}")
+            new_status = st.radio("实盘结果:", [L["status_empty"], L["status_used"], L["status_error"]])
+            if st.button(L["audit_btn"]):
+                with st.spinner("正在同步..."):
+                    save_to_gsheets(loc_input, new_status, staff)
+                    st.success(L["submit_ok"])
+                    st.rerun()
 
-    # --- 7. 主界面渲染 ---
+    # 主界面显示
     st.markdown(f'<h3 style="text-align:center;">{L["title"]}</h3>', unsafe_allow_html=True)
     t_all = sum(s['t_v'] for s in wh_stats.values())
     u_all = sum(s['u_v'] for s in wh_stats.values())
     st.markdown(f'<div class="total-card">{L["total_usage"]}: {(u_all/t_all*100 if t_all>0 else 0):.1f}% ({u_all:.1f}/{t_all:.1f} m³)</div>', unsafe_allow_html=True)
 
+    # 货架图布局参数
     levels = ["50","40","30","20","10","00"] if selected_wh=='A' else ["40","30","20","10","00"]
     split = 3 if selected_wh=='A' else 2
     all_cols = sorted(list(set(v['Col'] for v in l_map.values() if v['Aisle']==selected_aisle)), reverse=True)
     
+    # 渲染货架图
     h_str = '<div class="shelf-container"><div class="pillar"></div>'
     for i in range(0, len(all_cols), split):
         bay_cols = all_cols[i : i + split]
@@ -184,22 +197,26 @@ if l_map:
                     if len(d['Items']) > 0: cls = "status-used"
                     elif d['Status'] == "可用": cls = "status-empty"
                     elif d['Status'] == "不可用": cls, sym = "status-disabled", "❌"
+                
                 if f_id in audited_data: cls += " status-audited"
                 if loc_input and f_id == loc_input: cls += " status-selected"
+                
                 col_htmls[c_idx] += f'<div class="bin-box {cls}">{sym}</div>'
+            
             if l_idx < len(levels) - 1:
                 for c_idx in range(len(bay_cols)): col_htmls[c_idx] += '<div class="orange-beam"></div>'
+        
         for idx, c_html in enumerate(col_htmls):
             h_str += f'<div style="display:flex; flex-direction:column; align-items:center; width:40px;">{c_html}<div style="font-size:9px; color:#999;">{bay_cols[idx]}</div></div>'
         h_str += '</div><div class="pillar"></div>'
+    
     st.markdown(h_str + '</div>', unsafe_allow_html=True)
 
-    # 显示云端历史记录
     with st.expander(L["history"]):
         try:
             df_view = conn.read(ttl=0)
             st.dataframe(df_view.sort_values("update_time", ascending=False).head(10), use_container_width=True)
-        except: st.write("暂无记录")
-
+        except: 
+            st.write("暂无记录")
 else:
-    st.error("无法加载 SGF.csv。")
+    st.error("数据加载失败，请检查 SGF.csv")
