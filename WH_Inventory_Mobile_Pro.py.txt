@@ -1,0 +1,193 @@
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+from supabase import create_client, Client
+
+# --- 1. 页面与连接配置 ---
+st.set_page_config(page_title="MDC Mobile Pro", layout="wide")
+
+# 初始化 Supabase 连接
+url: str = st.secrets["SUPABASE_URL"]
+key: str = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(url, key)
+
+def save_to_supabase(loc, status, staff):
+    """写入盘点记录到 Supabase"""
+    data = {
+        "loc": loc,
+        "real_status": status,
+        "staff": staff,
+        "update_time": datetime.now().isoformat()
+    }
+    try:
+        # 使用 upsert 确保同一库位只保留最新状态（需在 Supabase 表中为 loc 设为唯一约束）
+        supabase.table("inventory_audit").upsert(data, on_conflict="loc").execute()
+        st.cache_data.clear() 
+    except Exception as e:
+        st.error(f"同步失败: {e}")
+
+def get_audited_dict():
+    """获取所有已盘点的库位状态映射"""
+    try:
+        response = supabase.table("inventory_audit").select("loc, real_status").execute()
+        if response.data:
+            return {item['loc']: item['real_status'] for item in response.data}
+        return {}
+    except:
+        return {}
+
+# --- 2. 语言与样式 ---
+LANG_DICT = {
+    "CN": {
+        "title": "MDC 联动盘点 (Pro)",
+        "staff_name": "盘点人员",
+        "wh_sel": "1. 选择仓库",
+        "aisle_sel": "2. 选择货道",
+        "bin_sel": "3. 选择库位",
+        "audit_btn": "提交实盘记录",
+        "status_empty": "空闲 (Vazio)",
+        "status_used": "占用 (Ocupado)",
+        "status_error": "不可用 (Bloqueado)",
+        "history": "🕒 最近盘点历史",
+        "legend_beam": "横梁",
+        "legend_pillar": "立柱"
+    },
+    "PT": {
+        "title": "MDC Inventário Pro",
+        "staff_name": "Funcionário",
+        "wh_sel": "1. Armazém",
+        "aisle_sel": "2. Corredor",
+        "bin_sel": "3. Local",
+        "audit_btn": "Confirmar",
+        "status_empty": "Vazio",
+        "status_used": "Ocupado",
+        "status_error": "Bloqueado",
+        "history": "🕒 Histórico Cloud",
+        "legend_beam": "Viga",
+        "legend_pillar": "Pilar"
+    }
+}
+
+st.markdown("""
+    <style>
+    .total-card { background-color: #1e3c72; padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 15px; }
+    .shelf-container { display: flex; flex-wrap: nowrap; overflow-x: auto; padding: 10px; background: white; border: 1px solid #eee; }
+    .bin-box { width: 32px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 1px; font-size: 9px; font-weight: bold; border: 1px solid #f0f0f0; background-color: white; }
+    .status-used { background-color: #3498db !important; color: white; border: none; }
+    .status-empty { background-color: #2ecc71 !important; color: white; border: none; }
+    .status-disabled { background-color: #95a5a6 !important; color: white; border: none; }
+    /* 高亮选中的库位 */
+    .status-selected { border: 2px solid #FF4B4B !important; transform: scale(1.1); z-index: 10; box-shadow: 0 0 8px rgba(255, 75, 75, 0.6); }
+    /* 已盘点角标 */
+    .status-audited { position: relative; }
+    .status-audited::after { content: '✅'; position: absolute; top: -5px; right: -5px; font-size: 9px; }
+    .orange-beam { width: 100%; height: 3px; background-color: #ff9800; margin: 1px 0; }
+    .pillar { width: 0; height: 180px; border-left: 3px dotted #3498db; margin: 0 8px; opacity: 0.8; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 3. 数据加载 (集成自 Total WH-Mobile.py) ---
+@st.cache_data(ttl=60)
+def load_data():
+    if not os.path.exists("SGF.csv"): return None, None
+    try:
+        raw_df = pd.read_csv("SGF.csv", low_memory=False)
+        df = raw_df.iloc[:, [0, 6, 9, 11, 12, 13, 14]].copy()
+        df.columns = ['SKU', 'Loc', 'Qty', 'L', 'W', 'H', 'Status']
+        df['Loc'] = df['Loc'].astype(str).str.strip()
+        df['Status'] = df['Status'].astype(str).str.strip()
+        df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
+        for c in ['L','W','H']: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+        df['Vol'] = (df['L'] * df['W'] * df['H']) / 1000000
+        
+        master = df[(~df['Loc'].str.contains('-', na=False)) & (df['Loc'].str.startswith(('A','B','C','D','E'))) & (df['L']>0)].drop_duplicates('Loc')
+        
+        l_map, wh_stats = {}, {wh: {'t_v':0.0, 'u_v':0.0, 'total_bins':0, 'used_bins':0} for wh in 'ABCDE'}
+        for _, r in master.iterrows():
+            wh = r['Loc'][0].upper()
+            l_map[r['Loc']] = {'Items':[], 'Status':r['Status'], 'Vol':r['Vol'], 'WH':wh, 'Aisle':r['Loc'][0:3], 'Col':r['Loc'][3:5], 'Lvl':r['Loc'][5:7]}
+            if r['Status'] == "可用": 
+                wh_stats[wh]['t_v'] += r['Vol']
+                wh_stats[wh]['total_bins'] += 1
+        
+        inv = df[df['Qty'] > 0]
+        for _, r in inv.iterrows():
+            if r['Loc'] in l_map: l_map[r['Loc']]['Items'].append(f"{r['SKU']}:{int(r['Qty'])}")
+        
+        for k, v in l_map.items():
+            if len(v['Items']) > 0 and v['Status'] == "可用": 
+                wh_stats[v['WH']]['u_v'] += v['Vol']; wh_stats[v['WH']]['used_bins'] += 1
+        return l_map, wh_stats
+    except: return None, None
+
+l_map, wh_stats = load_data()
+audited_data = get_audited_dict()
+
+# --- 4. 界面逻辑 ---
+if l_map:
+    lang_choice = st.sidebar.radio("Língua / 语言", ["中文", "Português"])
+    L = LANG_DICT["CN"] if lang_choice == "中文" else LANG_DICT["PT"]
+    
+    with st.sidebar:
+        st.header("👤 " + L["staff_name"])
+        staff = st.text_input("Name", value="Staff_01")
+        st.divider()
+        
+        # 联动选择器
+        swh = st.selectbox(L["wh_sel"], sorted(list(wh_stats.keys())))
+        aisles = sorted(list(set(v['Aisle'] for v in l_map.values() if v['WH']==swh)))
+        saisle = st.selectbox(L["aisle_sel"], aisles)
+        bins = sorted([loc for loc in l_map.keys() if loc.startswith(saisle)])
+        sloc = st.selectbox(L["bin_sel"], [""] + bins)
+
+        if sloc:
+            st.info(f"系统: {'有货' if len(l_map[sloc]['Items'])>0 else '空闲'}")
+            res = st.radio("实盘:", [L["status_empty"], L["status_used"], L["status_error"]])
+            if st.button(L["audit_btn"]):
+                save_to_supabase(sloc, res, staff)
+                st.success("OK!")
+                st.rerun()
+
+    # 主图渲染
+    st.markdown(f'<h3 style="text-align:center;">{L["title"]}</h3>', unsafe_allow_html=True)
+    
+    # 货架图展示
+    levels = ["50","40","30","20","10","00"] if swh=='A' else ["40","30","20","10","00"]
+    split = 3 if swh=='A' else 2
+    all_cols = sorted(list(set(v['Col'] for v in l_map.values() if v['Aisle']==saisle)), reverse=True)
+    
+    h_str = '<div class="shelf-container"><div class="pillar"></div>'
+    for i in range(0, len(all_cols), split):
+        bay_cols = all_cols[i : i + split]
+        h_str += '<div style="display:flex;">'
+        col_htmls = ["" for _ in bay_cols]
+        for l_idx, lvl in enumerate(levels):
+            for c_idx, cid in enumerate(bay_cols):
+                fid = f"{saisle}{cid}{lvl}"
+                d = l_map.get(fid)
+                cls, sym = "status-unknown", lvl
+                if d:
+                    if len(d['Items']) > 0: cls = "status-used"
+                    elif d['Status'] == "可用": cls = "status-empty"
+                    elif d['Status'] == "不可用": cls, sym = "status-disabled", "❌"
+                
+                # 叠加状态：已盘点标记 & 选中高亮
+                if fid in audited_data: cls += " status-audited"
+                if sloc and fid == sloc: cls += " status-selected"
+                
+                col_htmls[c_idx] += f'<div class="bin-box {cls}">{sym}</div>'
+            if l_idx < len(levels) - 1:
+                for c_idx in range(len(bay_cols)): col_htmls[c_idx] += '<div class="orange-beam"></div>'
+        
+        for idx, c_html in enumerate(col_htmls):
+            h_str += f'<div style="display:flex; flex-direction:column; align-items:center; width:38px;">{c_html}<div style="font-size:9px;color:#999;">{bay_cols[idx]}</div></div>'
+        h_str += '</div><div class="pillar"></div>'
+    
+    st.markdown(h_str + '</div>', unsafe_allow_html=True)
+
+    # 历史记录展示
+    with st.expander(L["history"]):
+        res = supabase.table("inventory_audit").select("*").order("update_time", desc=True).limit(10).execute()
+        if res.data:
+            st.dataframe(pd.DataFrame(res.data), use_container_width=True)
