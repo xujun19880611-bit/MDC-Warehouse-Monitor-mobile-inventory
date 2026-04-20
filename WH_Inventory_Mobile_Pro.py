@@ -4,102 +4,72 @@ import os
 from datetime import datetime
 from supabase import create_client, Client
 
-# --- 1. 页面配置 ---
-st.set_page_config(page_title="MDC Mobile Pro (Supabase)", layout="wide")
+# --- 1. 初始化配置 ---
+st.set_page_config(page_title="MDC Cloud Inventory", layout="wide")
 
-# --- 2. Supabase 连接逻辑 ---
-url: str = st.secrets["SUPABASE_URL"]
-key: str = st.secrets["SUPABASE_KEY"]
-supabase: Client = create_client(url, key)
+# Supabase 安全连接
+try:
+    url: str = st.secrets["SUPABASE_URL"]
+    key: str = st.secrets["SUPABASE_KEY"]
+    supabase: Client = create_client(url, key)
+except Exception as e:
+    st.error("Secrets 配置错误，请检查 Streamlit 后台设置。")
 
+# --- 2. 数据库操作函数 ---
 def save_to_supabase(loc, status, staff):
-    """写入数据到 Supabase 数据库"""
+    """使用 upsert 方式同步实盘结果"""
     data = {
         "loc": loc,
         "real_status": status,
         "staff": staff,
         "update_time": datetime.now().isoformat()
     }
-    # 执行插入（Supabase 这里的 upsert 可以根据 loc 自动覆盖旧记录，需在表里给 loc 设唯一约束，或者直接 insert）
     try:
-        supabase.table("inventory_audit").insert(data).execute()
-        st.cache_data.clear() # 提交成功后清除缓存，确保刷新后能看到最新结果
+        supabase.table("inventory_audit").upsert(data).execute()
+        st.cache_data.clear() 
     except Exception as e:
-        st.error(f"同步失败: {e}")
+        st.error(f"数据库写入失败: {e}")
 
 def get_audited_dict():
-    """从数据库获取已盘点的数据，用于前端打钩标记"""
+    """获取已盘点数据用于前端 ✅ 标记"""
     try:
-        response = supabase.table("inventory_audit").select("loc, real_status").execute()
-        if response.data:
-            return {item['loc']: item['real_status'] for item in response.data}
-        return {}
+        res = supabase.table("inventory_audit").select("loc, real_status").execute()
+        return {item['loc']: item['real_status'] for item in res.data} if res.data else {}
     except:
         return {}
 
-# --- 3. 语言与样式配置 ---
-LANG_DICT = {
-    "CN": {
-        "title": "MDC 仓库联动盘点 (Supabase)",
-        "staff_name": "盘点人员",
-        "wh_sel": "1. 选择仓库",
-        "aisle_sel": "2. 选择货道",
-        "bin_sel": "3. 选择具体库位",
-        "audit_btn": "提交实盘记录",
-        "status_empty": "空库位 (Vazio)",
-        "status_used": "有货 (Ocupado)",
-        "status_error": "不可用 (Bloqueado)",
-        "submit_ok": "同步成功！数据已入库。",
-        "total_usage": "总利用率",
-        "history": "🕒 云端实时记录 (Supabase DB)"
-    },
-    "PT": {
-        "title": "MDC Inventário Cloud",
-        "staff_name": "Funcionário",
-        "wh_sel": "1. Armazém",
-        "aisle_sel": "2. Corredor",
-        "bin_sel": "3. Local",
-        "audit_btn": "Confirmar",
-        "status_empty": "Vazio",
-        "status_used": "Ocupado",
-        "status_error": "Bloqueado",
-        "submit_ok": "Sincronizado!",
-        "total_usage": "Ocupação",
-        "history": "🕒 Registro Cloud"
-    }
-}
-
+# --- 3. UI 样式 (沿用你 Total WH-Mobile.py 的高性能风格) ---
 st.markdown("""
     <style>
-    .bin-box { width: 34px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 2px; font-size: 10px; font-weight: bold; border: 1px solid #f0f0f0; background-color: white; }
+    .total-card { background-color: #1e3c72; padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 15px; }
+    .shelf-container { display: flex; flex-wrap: nowrap; overflow-x: auto; padding: 10px; background: white; border: 1px solid #eee; }
+    .bin-box { width: 32px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; border: 1px solid #f0f0f0; }
     .status-used { background-color: #3498db !important; color: white; border: none; }
     .status-empty { background-color: #2ecc71 !important; color: white; border: none; }
     .status-disabled { background-color: #95a5a6 !important; color: white; border: none; }
-    .status-selected { border: 3px solid #FF4B4B !important; transform: scale(1.15); z-index: 100; box-shadow: 0 0 12px rgba(255, 75, 75, 0.9); }
+    .status-selected { border: 2px solid #FF4B4B !important; transform: scale(1.1); }
     .status-audited { position: relative; }
-    .status-audited::after { content: '✅'; position: absolute; top: -6px; right: -6px; font-size: 10px; }
-    .total-card { background: linear-gradient(135deg, #1e3c72, #2a5298); padding: 15px; border-radius: 10px; color: white; text-align: center; margin-bottom: 20px; }
-    .shelf-container { display: flex; flex-wrap: nowrap; overflow-x: auto; padding: 15px; background: #fff; border: 1px solid #eee; }
+    .status-audited::after { content: '✅'; position: absolute; top: -5px; right: -5px; font-size: 9px; }
     .orange-beam { width: 100%; height: 3px; background-color: #ff9800; margin: 1px 0; }
-    .pillar { width: 0; height: 180px; border-left: 3px dotted #3498db; margin: 0 10px; opacity: 0.6; }
+    .pillar { width: 0; height: 180px; border-left: 3px dotted #3498db; margin: 0 8px; opacity: 0.8; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. 数据加载 (SGF.csv) ---
+# --- 4. 数据处理逻辑 ---
 @st.cache_data(ttl=60)
-def load_sgf_data():
+def load_data():
     if not os.path.exists("SGF.csv"): return None, None
     try:
         raw_df = pd.read_csv("SGF.csv", low_memory=False)
         df = raw_df.iloc[:, [0, 6, 9, 11, 12, 13, 14]].copy()
         df.columns = ['SKU', 'Loc', 'Qty', 'L', 'W', 'H', 'Status']
         df['Loc'] = df['Loc'].astype(str).str.strip()
-        df['Status'] = df['Status'].astype(str).str.strip()
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         for c in ['L','W','H']: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
         df['Vol'] = (df['L'] * df['W'] * df['H']) / 1000000
         
         master = df[(~df['Loc'].str.contains('-', na=False)) & (df['Loc'].str.startswith(('A','B','C','D','E'))) & (df['L']>0)].drop_duplicates('Loc')
+        
         l_map, wh_stats = {}, {wh: {'t_v':0.0, 'u_v':0.0, 'total_bins':0, 'used_bins':0} for wh in 'ABCDE'}
         for _, r in master.iterrows():
             wh = r['Loc'][0].upper()
@@ -116,47 +86,70 @@ def load_sgf_data():
             if len(v['Items']) > 0 and v['Status'] == "可用": 
                 wh_stats[v['WH']]['u_v'] += v['Vol']; wh_stats[v['WH']]['used_bins'] += 1
         return l_map, wh_stats
-    except: return None, None
+    except Exception as e:
+        st.error(f"SGF数据解析失败: {e}")
+        return None, None
 
-l_map, wh_stats = load_sgf_data()
-audited_data = get_audited_dict() # 核心：从云端数据库获取
+l_map, wh_stats = load_data()
+audited_data = get_audited_dict()
 
-# --- 5. 交互界面 ---
+# --- 5. 侧边栏与交互 ---
 if l_map:
-    lang_choice = st.sidebar.radio("Língua / 语言", ["中文", "Português"])
-    L = LANG_DICT["CN"] if lang_choice == "中文" else LANG_DICT["PT"]
-    
     with st.sidebar:
-        st.header("👤 " + L["staff_name"])
-        staff = st.text_input("Name", value="Staff_01")
+        staff = st.text_input("盘点人/Staff", value="Staff_01")
         st.divider()
+        swh = st.selectbox("仓库", sorted(list(wh_stats.keys())))
+        aisles = sorted(list(set(v['Aisle'] for v in l_map.values() if v['WH']==swh)))
+        saisle = st.selectbox("货道", aisles)
+        bins = sorted([loc for loc in l_map.keys() if loc.startswith(saisle)])
+        sloc = st.selectbox("选中库位", [""] + bins)
+
+        if sloc:
+            st.info(f"系统记录: {'有货' if len(l_map[sloc]['Items'])>0 else '空闲'}")
+            res = st.radio("实盘结果:", ["空闲 (Vazio)", "有货 (Ocupado)", "损坏 (Bloqueado)"])
+            if st.button("确认提交/Confirm"):
+                save_to_supabase(sloc, res, staff)
+                st.rerun()
+
+    # --- 6. 主图渲染 ---
+    levels = ["50","40","30","20","10","00"] if swh=='A' else ["40","30","20","10","00"]
+    split = 3 if swh=='A' else 2
+    all_cols = sorted(list(set(v['Col'] for v in l_map.values() if v['Aisle']==saisle)), reverse=True)
+    
+    h_str = '<div class="shelf-container"><div class="pillar"></div>'
+    for i in range(0, len(all_cols), split):
+        bay_cols = all_cols[i : i + split]
+        h_str += '<div style="display:flex;">'
+        col_htmls = ["" for _ in bay_cols]
+        for l_idx, lvl in enumerate(levels):
+            for c_idx, cid in enumerate(bay_cols):
+                fid = f"{saisle}{cid}{lvl}"
+                d = l_map.get(fid)
+                cls, sym = "status-unknown", lvl
+                if d:
+                    if len(d['Items']) > 0: cls = "status-used"
+                    elif d['Status'] == "可用": cls = "status-empty"
+                    elif d['Status'] == "不可用": cls, sym = "status-disabled", "❌"
+                
+                # 叠加状态
+                if fid in audited_data: cls += " status-audited"
+                if sloc and fid == sloc: cls += " status-selected"
+                
+                col_htmls[c_idx] += f'<div class="bin-box {cls}">{sym}</div>'
+            if l_idx < len(levels) - 1:
+                for c_idx in range(len(bay_cols)): col_htmls[c_idx] += '<div class="orange-beam"></div>'
         
-        selected_wh = st.selectbox(L["wh_sel"], sorted(list(wh_stats.keys())))
-        aisle_options = sorted(list(set(v['Aisle'] for v in l_map.values() if v['WH'] == selected_wh)))
-        selected_aisle = st.selectbox(L["aisle_sel"], aisle_options)
-        bin_options = sorted([loc for loc in l_map.keys() if loc.startswith(selected_aisle)])
-        loc_input = st.selectbox(L["bin_sel"], [""] + bin_options)
+        for idx, c_html in enumerate(col_htmls):
+            h_str += f'<div style="display:flex; flex-direction:column; align-items:center; width:38px;">{c_html}<div style="font-size:9px;color:#999;">{bay_cols[idx]}</div></div>'
+        h_str += '</div><div class="pillar"></div>'
+    
+    st.markdown(h_str + '</div>', unsafe_allow_html=True)
 
-        if loc_input:
-            has_cargo = len(l_map[loc_input]['Items']) > 0
-            st.info(f"系统记录: {'有货' if has_cargo else '空闲'}")
-            new_status = st.radio("实盘结果:", [L["status_empty"], L["status_used"], L["status_error"]])
-            if st.button(L["audit_btn"]):
-                with st.spinner("正在写入云端数据库..."):
-                    save_to_supabase(loc_input, new_status, staff)
-                    st.success(L["submit_ok"])
-                    st.rerun()
-
-    # --- 6. 绘图与历史展示 ---
-    st.markdown(f'<h3 style="text-align:center;">{L["title"]}</h3>', unsafe_allow_html=True)
-    # ... (此处省略重复的统计卡片和货架绘图代码，逻辑与之前完全一致) ...
-    # 绘图时记得检查 f_id 是否在 audited_data 字典中，如果在则添加 ✅ 标记。
-
-    with st.expander(L["history"]):
-        response = supabase.table("inventory_audit").select("*").order("update_time", desc=True).limit(15).execute()
-        if response.data:
-            st.dataframe(pd.DataFrame(response.data), use_container_width=True)
-        else:
-            st.write("暂无数据")
-else:
-    st.error("无法加载 SGF.csv")
+    # 底部历史记录查询
+    with st.expander("🕒 最近记录 (Latest 15)"):
+        try:
+            history = supabase.table("inventory_audit").select("*").order("update_time", desc=True).limit(15).execute()
+            if history.data:
+                st.dataframe(pd.DataFrame(history.data), use_container_width=True)
+        except Exception as e:
+            st.warning(f"无法读取历史记录: {e}")
