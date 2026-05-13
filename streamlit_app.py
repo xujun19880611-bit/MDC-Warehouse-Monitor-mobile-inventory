@@ -9,16 +9,16 @@ st.set_page_config(page_title="MDC 互动盘点系统", layout="wide")
 
 # --- 1. Google Form 提交函数 ---
 def send_to_google_form(name, loc, p_type, note):
-    # 【请替换为你自己的表单 ID】
-    form_id = "1FAIpQLScyXXXXXX_你的表单ID_XXXXXX" 
+    # 1. 替换为你真实的表单 ID (从你的 URL 中提取)
+    form_id = "1FAIpQLScdB2DC7CKJKly5vaaqTykfo5wrsdMSIgy3I01KvxAUY_emJQ" 
     url = f"https://docs.google.com/forms/d/e/{form_id}/formResponse"
     
-    # 【请替换为你自己表单中 4 个题目的 Entry ID】
+    # 2. 这里的 entry.xxxx 需要你按照下面的步骤填入真实的数字 ID
     payload = {
-        "entry.11111111": name,   # 员工姓名 对应的 ID
-        "entry.22222222": loc,    # 库位编号 对应的 ID
-        "entry.33333333": p_type, # 问题类型 对应的 ID
-        "entry.44444444": note    # 备注 对应的 ID
+        "entry.16694271021": name,   # 对应“员工姓名”
+        "entry.7381759232": loc,    # 对应“库位编号”
+        "entry.16766308153": p_type, # 对应“问题类型”
+        "entry.9148218614": note    # 对应“备注”
     }
     
     try:
