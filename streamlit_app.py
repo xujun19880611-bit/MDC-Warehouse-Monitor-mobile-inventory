@@ -15,10 +15,10 @@ def send_to_google_form(name, loc, p_type, note):
     
     # 2. 这里的 entry.xxxx 需要你按照下面的步骤填入真实的数字 ID
     payload = {
-        "entry.16694271021": name,   # 对应“员工姓名”
-        "entry.7381759232": loc,    # 对应“库位编号”
-        "entry.16766308153": p_type, # 对应“问题类型”
-        "entry.9148218614": note    # 对应“备注”
+        "entry.1669427102": name,   # 对应“员工姓名”
+        "entry.738175923": loc,    # 对应“库位编号”
+        "entry.1676630815": p_type, # 对应“问题类型”
+        "entry.914821861": note    # 对应“备注”
     }
     
     try:
