@@ -1,6 +1,3 @@
-streamlit
 pandas
-openpyxl
-xlsxwriter
-st-gsheets-connection
-supabase
+streamlit
+requests
