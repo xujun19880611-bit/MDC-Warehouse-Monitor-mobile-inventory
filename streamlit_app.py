@@ -173,5 +173,7 @@ if target_loc != "-- Selecione --":
                         st.rerun()
                     else:
                         st.error(f"Erro: {response.status_code}")
+                except:
+                    st.error("Erro de rede.")
 
 st.markdown("<br><br><br><br>", unsafe_allow_html=True)
