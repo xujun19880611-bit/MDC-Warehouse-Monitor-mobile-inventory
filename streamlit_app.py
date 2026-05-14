@@ -3,20 +3,25 @@ import streamlit.components.v1 as components
 import pandas as pd
 import requests
 
-# 1. 页面基本配置
+# 1. 页面配置
 st.set_page_config(page_title="MDC 互动盘点 5.0", layout="centered")
 
-# 2. 增强版 CSS (包含平滑滚动效果)
+# 2. CSS：确保平滑滚动 + 货架横梁
 st.markdown("""
     <style>
-    html { scroll-behavior: smooth; } /* 让滚动变得平滑，像电梯一样 */
+    html { scroll-behavior: smooth; } 
     [data-testid="column"] { width: calc(50% - 0.5rem) !important; flex: 1 1 calc(50% - 0.5rem) !important; }
     #MainMenu, header, footer {visibility: hidden;}
-    .block-container {padding-top: 1rem;}
-    /* 橙色横梁 */
     .slot::after {
         content: ""; position: absolute; bottom: -3px; left: 0;
         width: 100%; height: 4px; background: #fb8c00; border-radius: 2px;
+    }
+    /* 增加反馈区的视觉边界 */
+    .feedback-container {
+        border: 2px solid #ff4b4b;
+        padding: 15px;
+        border-radius: 10px;
+        background-color: #fffafa;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -34,7 +39,6 @@ def send_to_google_form(name, loc, p_type, note):
         return res.status_code == 200
     except: return False
 
-# --- 数据读取 ---
 @st.cache_data
 def load_data():
     df = pd.read_csv('SGF.csv', dtype=str)
@@ -50,10 +54,9 @@ if 'selected_area' not in st.session_state: st.session_state.selected_area = "A"
 if 'selected_rack' not in st.session_state: st.session_state.selected_rack = "0.0"
 
 # =========================================================
-# 🏗️ 上半部分：货架展示区 (ID: top-zone)
+# 🏗️ 第一部分：货架浏览区 (永远显示在顶部)
 # =========================================================
-st.markdown('<div id="top-zone"></div>', unsafe_allow_html=True)
-st.markdown("<h3 style='text-align: center; margin-top: -10px;'>🏗️ 货架布局展示</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>🏗️ 货架布局</h3>", unsafe_allow_html=True)
 
 sel_c1, sel_c2 = st.columns(2)
 with sel_c1:
@@ -72,7 +75,7 @@ with sel_c2:
 
 rack_code = f"{selected_area}{selected_rack_display}"
 
-# 业务逻辑渲染
+# 业务规则逻辑
 is_area_a = (selected_area == "A")
 levels_raw = ['50.0','40.0','30.0','20.0','10.0','0.0'] if is_area_a else ['40.0','30.0','20.0','10.0','0.0']
 bps, view_sections, slot_h = (3, 2, "45px") if is_area_a else (2, 3, "55px")
@@ -82,6 +85,7 @@ all_bins = sorted(all_bins_raw, key=lambda x: int(float(x)), reverse=True)
 if 'offset' not in st.session_state: st.session_state.offset = 0
 total_bins_view = bps * view_sections
 
+# 翻页
 nav_cols = st.columns([1, 2, 2, 1])
 with nav_cols[1]:
     if st.button("⬅️ 上一页", use_container_width=True):
@@ -93,9 +97,9 @@ with nav_cols[2]:
 
 current_bins = all_bins[st.session_state.offset : st.session_state.offset + total_bins_view]
 
-# 货架图：点击后跳转锚点并触发 JS 滚动
+# 货架 HTML
 def get_shelf_html(bins, lvls, section_size, h):
-    css = f"<style>.shelf-wrapper{{display:flex;justify-content:center;background:white;padding-top:10px;}}.pillar{{width:10px;background:#3498db;margin:0 4px;border-radius:5px;}}.bin-col{{display:flex;flex-direction:column;width:62px;}}.slot{{height:{h};border:1px solid #eee;margin:2px 1px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;text-decoration:none;border-radius:2px;position:relative;}}.slot::after{{content:'';position:absolute;bottom:-3px;left:0;width:100%;height:4px;background:#fb8c00;border-radius:2px;}}.empty{{background:#fff;color:#ccc;}}.stocked{{background:#1976D2;color:#fff;}}.disabled{{background:#f5f5f5;color:#ff5252;pointer-events:none;}}.bin-label{{text-align:center;font-size:10px;padding:8px 0;color:#777;font-weight:bold;}}</style>"
+    css = f"<style>.shelf-wrapper{{display:flex;justify-content:center;background:white;padding-top:10px;}}.pillar{{width:10px;background:#3498db;margin:0 4px;border-radius:5px;}}.bin-col{{display:flex;flex-direction:column;width:62px;}}.slot{{height:{h};border:1.2px solid #eee;margin:2px 1px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;text-decoration:none;border-radius:2px;position:relative;}}.slot::after{{content:'';position:absolute;bottom:-3px;left:0;width:100%;height:4px;background:#fb8c00;border-radius:2px;}}.empty{{background:#fff;color:#ccc;}}.stocked{{background:#1976D2;color:#fff;}}.disabled{{background:#f5f5f5;color:#ff5252;pointer-events:none;}}.bin-label{{text-align:center;font-size:10px;padding:8px 0;color:#777;font-weight:bold;}}</style>"
     html = '<div class="shelf-wrapper">'
     for i, b_num in enumerate(bins):
         if i % section_size == 0: html += '<div class="pillar"></div>'
@@ -110,8 +114,8 @@ def get_shelf_html(bins, lvls, section_size, h):
                 html += '<div class="slot disabled">❌</div>'
             else:
                 bg = "stocked" if full_id in has_stock_list else "empty"
-                # 重点：href 链接带锚点 #feedback-zone
-                html += f'<a href="?check_loc={full_id}#feedback-zone" target="_self" class="slot {bg}">{lvl_str}</a>'
+                # 关键：带锚点跳转
+                html += f'<a href="?check_loc={full_id}#feedback-anchor" target="_self" class="slot {bg}">{lvl_str}</a>'
         html += f'<div class="bin-label">{bin_str}</div></div>'
         if i == len(bins) - 1: html += '<div class="pillar"></div>'
     return css + html + '</div>'
@@ -119,41 +123,42 @@ def get_shelf_html(bins, lvls, section_size, h):
 components.html(get_shelf_html(current_bins, levels_raw, bps, slot_h), height=380)
 
 # =========================================================
-# 🏗️ 下半部分：反馈反馈区 (ID: feedback-zone)
+# 🏗️ 第二部分：反馈记录区 (永远显示在底部)
 # =========================================================
-st.markdown('<br><br><div id="feedback-zone"></div>', unsafe_allow_html=True)
+st.markdown("<br><br><br>", unsafe_allow_html=True) # 增加物理间距
+st.markdown('<div id="feedback-anchor"></div>', unsafe_allow_html=True) # 锚点
 st.divider()
 
+# 获取当前点击的库位
 q_params = st.query_params
 target_loc = q_params.get("check_loc", "尚未选择库位")
 
 st.markdown(f"<h3 style='text-align: center; color: #ff4b4b;'>🚨 差异反馈记录</h3>", unsafe_allow_html=True)
-st.info(f"📍 当前针对库位：**{target_loc}**")
 
-# 如果没选库位，表单也会显示，但提交按钮不可用或提醒选择
-with st.form("inventory_form", clear_on_submit=True):
-    staff_name = st.text_input("盘点人姓名 *", placeholder="请输入姓名")
-    issue_type = st.radio("异常情况", ["系统有货-实物无", "系统无货-实物有", "库位停用-实物有货"], horizontal=True)
-    memo = st.text_area("备注说明")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        submit_btn = st.form_submit_button("✅ 确认提交并回顶部", use_container_width=True)
-        if submit_btn:
-            if "尚未选择" in target_loc:
-                st.error("请先点击上方货架中的库位！")
-            elif not staff_name:
-                st.error("请填写姓名")
-            else:
-                if send_to_google_form(staff_name, target_loc, issue_type, memo):
-                    st.success("提交成功！")
-                    # 清除参数并触发刷新，回到页面顶部
-                    st.query_params.clear()
-                    st.rerun()
-    with c2:
-        if st.form_submit_button("❌ 取消重置回顶部", use_container_width=True):
-            st.query_params.clear()
-            st.rerun()
+# 即使没点库位，这里也会显示，只是内容是“尚未选择”
+with st.container():
+    st.info(f"📍 当前针对库位：**{target_loc}**")
+    with st.form("inventory_form", clear_on_submit=True):
+        name = st.text_input("盘点人姓名 *", placeholder="请输入姓名")
+        issue = st.radio("问题类型", ["系统有货-实物无", "系统无货-实物有", "库位停用-实物有货"], horizontal=True)
+        note = st.text_area("备注说明")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.form_submit_button("✅ 确认提交", use_container_width=True):
+                if "尚未选择" in target_loc:
+                    st.error("请先点击上方库位！")
+                elif not name:
+                    st.error("请填写姓名")
+                else:
+                    if send_to_google_form(name, target_loc, issue, note):
+                        st.success("提交成功！")
+                        st.query_params.clear()
+                        st.rerun()
+        with c2:
+            if st.form_submit_button("❌ 重置并回顶部", use_container_width=True):
+                st.query_params.clear()
+                st.rerun()
 
-# 💡 页面底端留白，确保“电梯”能滚得动
-st.markdown("<br><br><br><br><br><br>", unsafe_allow_html=True)
+# 页面底端增加大量留白，确保点击最底下一排库位时，反馈区能滚到屏幕中间
+st.markdown("<br><br><br><br><br><br><br><br>", unsafe_allow_html=True)
