@@ -4,38 +4,23 @@ import requests
 import time
 
 # 1. Configurações da página
-st.set_page_config(page_title="MDC Inventário 9.7", layout="centered")
+st.set_page_config(page_title="MDC Inventário 9.6", layout="centered")
 
-# 2. Estilos Customizados (CSS) - 强化手机端窄屏适配
+# 2. Estilos Customizados (CSS)
 st.markdown("""
     <style>
-    /* 强制列容器不折行 */
-    [data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        align-items: center !important;
-    }
-    
-    /* 调整按钮样式，缩小体积以适应单行显示 */
-    .stButton > button {
-        width: 100% !important;
-        padding: 5px 0px !important;
-        font-size: 20px !important;
-        border-radius: 5px !important;
-    }
-
+    [data-testid="column"] { width: calc(50% - 0.5rem) !important; flex: 1 1 calc(50% - 0.5rem) !important; }
     #MainMenu, header, footer {visibility: hidden;}
     .block-container {padding-top: 1rem;}
     
     /* Layout das Estantes */
     .shelf-container { display: flex; justify-content: center; align-items: flex-start; padding: 10px 0; background: white; }
-    .pillar { width: 10px; background: #3498db; margin: 0 4px; border-radius: 5px; align-self: stretch; min-height: 240px; }
-    .bin-col { display: flex; flex-direction: column; width: 60px; }
+    .pillar { width: 12px; background: #3498db; margin: 0 4px; border-radius: 6px; align-self: stretch; min-height: 240px; }
+    .bin-col { display: flex; flex-direction: column; width: 62px; }
     .slot { 
-        height: 38px; border: 1px solid #eee; margin: 2px 1px; 
+        height: 40px; border: 1px solid #eee; margin: 2px 1px; 
         display: flex; align-items: center; justify-content: center; 
-        font-weight: bold; font-size: 12px; border-radius: 2px; position: relative;
+        font-weight: bold; font-size: 13px; border-radius: 2px; position: relative;
     }
     .slot::after { content: ""; position: absolute; bottom: -3px; left: 0; width: 100%; height: 4px; background: #fb8c00; border-radius: 2px; }
     .stocked { background: #1976D2; color: #fff; }
@@ -43,12 +28,12 @@ st.markdown("""
     .disabled { background: #f5f5f5; color: #ff5252; }
     .bin-label { text-align: center; font-size: 11px; padding: 5px 0; color: #777; font-weight: bold; }
     
-    /* Estilo do Seletor (Selectbox) - 修复高度 */
-    div[data-baseweb="select"] { font-size: 24px !important; font-weight: bold !important; }
-    div[data-baseweb="select"] > div:first-child { height: 65px !important; display: flex !important; align-items: center !important; }
+    /* Estilo do Seletor (Selectbox) */
+    div[data-baseweb="select"] { font-size: 26px !important; font-weight: bold !important; }
+    div[data-baseweb="select"] > div:first-child { height: 70px !important; display: flex !important; align-items: center !important; }
     div[role="listbox"] div { font-size: 22px !important; padding: 12px !important; }
     
-    .big-font { font-size: 20px !important; font-weight: bold; color: #ff4b4b; text-align: center; margin: 10px 0; }
+    .big-font { font-size: 22px !important; font-weight: bold; color: #ff4b4b; text-align: center; margin: 15px 0; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -69,11 +54,10 @@ if 's_rack' not in st.session_state: st.session_state.s_rack = "0.0"
 if 'offset' not in st.session_state: st.session_state.offset = 0
 
 # =========================================================
-# 🏗️ PARTE SUPERIOR: Visualização
+# 🏗️ PARTE SUPERIOR: Visualização das Estantes
 # =========================================================
-st.markdown("<h3 style='text-align: center; margin-bottom: 0;'>🏗️ Vista de Estante (MDC)</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; margin-bottom: 0;'>🏗️ Vista de Estante em Tempo Real</h3>", unsafe_allow_html=True)
 
-# 库区和货架选择
 c1, c2 = st.columns(2)
 with c1:
     areas = sorted(df['仓库'].dropna().unique().tolist())
@@ -88,17 +72,15 @@ with c2:
 
 rack_code = f"{st.session_state.s_area}{sel_label}"
 
-# 导航控制：极致空间压缩，确保图标在同一行
-# 使用 5 列布局，让图标居中且紧凑
-_, n_left, n_right, _ = st.columns([2, 1, 1, 2])
-with n_left:
-    if st.button("⬅️"): 
+# Navegação: Ícones apenas, em uma única linha
+n1, n2, n3, n4 = st.columns([1, 1, 1, 1])
+with n2:
+    if st.button("⬅️", use_container_width=True): 
         st.session_state.offset = max(0, st.session_state.offset - 6)
-with n_right:
-    if st.button("➡️"): 
+with n3:
+    if st.button("➡️", use_container_width=True): 
         st.session_state.offset += 6
 
-# 渲染货架
 is_a = (st.session_state.s_area == "A")
 lvls = ['50.0','40.0','30.0','20.0','10.0','0.0'] if is_a else ['40.0','30.0','20.0','10.0','0.0']
 sec_size = 3 if is_a else 2
@@ -125,35 +107,35 @@ shelf_html += '</div>'
 st.markdown(shelf_html, unsafe_allow_html=True)
 
 # =========================================================
-# 🏗️ PARTE CENTRAL: Seleção
+# 🏗️ PARTE CENTRAL: Seleção da Posição
 # =========================================================
 st.divider()
-st.markdown('<p class="big-font">📍 Passo 2: Escolha a Posição</p>', unsafe_allow_html=True)
+st.markdown('<p class="big-font">📍 Passo 2: Selecionar Posição</p>', unsafe_allow_html=True)
 
 available_locs = []
 for b in current_bins:
     for l in lvls:
         available_locs.append(f"{rack_code}{int(float(b)):02d}{int(float(l)):02d}")
 
-target_loc = st.selectbox("Posição", ["-- Selecione --"] + available_locs, label_visibility="collapsed")
+target_loc = st.selectbox("Escolha a Posição", ["-- Selecione --"] + available_locs, label_visibility="collapsed")
 
 # =========================================================
-# 🏗️ PARTE INFERIOR: Feedback
+# 🏗️ PARTE INFERIOR: Formulário de Feedback
 # =========================================================
 if target_loc != "-- Selecione --":
-    st.info(f"📍 Selecionado: **{target_loc}**")
+    st.info(f"✅ Selecionado: **{target_loc}**")
     with st.form("feedback_form", clear_on_submit=True):
-        u_name = st.text_input("Seu Nome (Quem está a contar?) *")
-        u_issue = st.radio("O que encontrou?", [
-            "Sistema diz que tem - Físico está VAZIO", 
-            "Sistema diz que está vazio - Físico TEM CARGA", 
-            "Posição bloqueada mas tem carga física"
+        u_name = st.text_input("Seu Nome *")
+        u_issue = st.radio("Tipo de Problema", [
+            "Sistema com stock - Físico vazio", 
+            "Sistema vazio - Físico com stock", 
+            "Posição bloqueada - Com stock físico"
         ], horizontal=False)
-        u_note = st.text_area("Notas Adicionais")
+        u_note = st.text_area("Observações")
         
-        if st.form_submit_button("✅ CONFIRMAR INVENTÁRIO", use_container_width=True):
+        if st.form_submit_button("✅ CONFIRMAR E ENVIAR", use_container_width=True):
             if not u_name:
-                st.error("Por favor, escreva o seu nome!")
+                st.error("Por favor, insira o seu nome!")
             else:
                 form_id = "1FAIpQLScdB2DC7CKJKly5vaaqTykfo5wrsdMSIgy3I01KvxAUY_emJQ"
                 url = f"https://docs.google.com/forms/d/e/{form_id}/formResponse"
@@ -167,13 +149,13 @@ if target_loc != "-- Selecione --":
                 try:
                     response = requests.post(url, data=payload, timeout=10)
                     if response.status_code == 200 or response.status_code == 0:
-                        st.toast(f"✅ Enviado: {target_loc}", icon='🚀')
-                        st.success("Sincronizado com sucesso!")
-                        time.sleep(1)
+                        st.toast(f"🎉 Sucesso: {target_loc}", icon='✅')
+                        st.success("Dados sincronizados com sucesso! A atualizar...")
+                        time.sleep(1.5)
                         st.rerun()
                     else:
-                        st.error(f"Erro: {response.status_code}")
+                        st.error(f"Erro no servidor: {response.status_code}")
                 except:
-                    st.error("Erro de rede.")
+                    st.error("Erro de rede. Verifique a conexão.")
 
 st.markdown("<br><br><br><br>", unsafe_allow_html=True)
