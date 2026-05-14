@@ -4,17 +4,16 @@ import requests
 import time
 
 # 1. 页面基本配置
-st.set_page_config(page_title="MDC 互动盘点 9.3", layout="centered")
+st.set_page_config(page_title="MDC 互动盘点 9.4", layout="centered")
 
-# 2. 全局样式定制 - 包含下拉框字体加大的黑科技
+# 2. 全局样式定制 - 彻底解决下拉框高度和字体匹配问题
 st.markdown("""
     <style>
-    /* 1. 强制列布局在手机端不折行 */
     [data-testid="column"] { width: calc(50% - 0.5rem) !important; flex: 1 1 calc(50% - 0.5rem) !important; }
     #MainMenu, header, footer {visibility: hidden;}
     .block-container {padding-top: 1rem;}
     
-    /* 2. 货架 UI 样式 */
+    /* 货架 UI */
     .shelf-container { display: flex; justify-content: center; align-items: flex-start; padding: 10px 0; background: white; }
     .pillar { width: 12px; background: #3498db; margin: 0 4px; border-radius: 6px; align-self: stretch; min-height: 240px; }
     .bin-col { display: flex; flex-direction: column; width: 62px; }
@@ -29,14 +28,21 @@ st.markdown("""
     .disabled { background: #f5f5f5; color: #ff5252; }
     .bin-label { text-align: center; font-size: 11px; padding: 5px 0; color: #777; font-weight: bold; }
     
-    /* 3. 中间选择框字体加大 (CSS 穿透) */
+    /* 下拉框高度与字体同步加大 */
     div[data-baseweb="select"] {
-        font-size: 24px !important;  /* 调整这个数值可以改变下拉框显示的字体大小 */
+        font-size: 24px !important;
         font-weight: bold !important;
+        min-height: 60px !important; /* 强制增加外框高度 */
     }
-    /* 下拉列表里的选项字体 */
+    /* 选中后的文字垂直居中 */
+    div[data-baseweb="select"] > div {
+        line-height: 40px !important;
+        height: auto !important;
+    }
+    /* 下拉列表里的选项 */
     div[role="listbox"] div {
-        font-size: 20px !important;
+        font-size: 22px !important;
+        padding: 10px !important;
     }
     
     .big-font { font-size: 22px !important; font-weight: bold; color: #ff4b4b; text-align: center; margin: 15px 0; }
@@ -78,16 +84,14 @@ with c2:
 
 rack_code = f"{st.session_state.s_area}{sel_label}"
 
-# 强制翻页按钮一行显示
+# 翻页控制
 n1, n2, n3, n4 = st.columns([1, 2, 2, 1])
 with n2:
-    if st.button("⬅️ 上页", use_container_width=True):
-        st.session_state.offset = max(0, st.session_state.offset - 6)
+    if st.button("⬅️ 上页", use_container_width=True): st.session_state.offset = max(0, st.session_state.offset - 6)
 with n3:
-    if st.button("下页 ➡️", use_container_width=True):
-        st.session_state.offset += 6
+    if st.button("下页 ➡️", use_container_width=True): st.session_state.offset += 6
 
-# 渲染货架（包含蓝色立柱）
+# 货架渲染
 is_a = (st.session_state.s_area == "A")
 lvls = ['50.0','40.0','30.0','20.0','10.0','0.0'] if is_a else ['40.0','30.0','20.0','10.0','0.0']
 sec_size = 3 if is_a else 2
@@ -110,17 +114,15 @@ for i, b_num in enumerate(current_bins):
             shelf_html += f'<div class="slot {bg}">{l_str}</div>'
     shelf_html += f'<div class="bin-label">{bin_str}</div></div>'
     if i == len(current_bins) - 1: shelf_html += '<div class="pillar"></div>'
-
 shelf_html += '</div>'
 st.markdown(shelf_html, unsafe_allow_html=True)
 
 # =========================================================
-# 🏗️ 中间部分：选择库位（字体已加大）
+# 🏗️ 中间部分：选择库位
 # =========================================================
 st.divider()
 st.markdown('<p class="big-font">📍 第二步：选择待反馈库位</p>', unsafe_allow_html=True)
 
-# 生成当前视图内可选列表
 available_locs = []
 for b in current_bins:
     for l in lvls:
@@ -129,36 +131,37 @@ for b in current_bins:
 target_loc = st.selectbox("⬇️ 库位选择列表", ["-- 请选择 --"] + available_locs, label_visibility="collapsed")
 
 # =========================================================
-# 🏗️ 下半部分：反馈提交与防重提示
+# 🏗️ 下半部分：反馈提交（逻辑优化）
 # =========================================================
 if target_loc != "-- 请选择 --":
-    st.info(f"✅ 当前选中库位：**{target_loc}**")
+    st.info(f"✅ 当前选中：**{target_loc}**")
     with st.form("feedback_form", clear_on_submit=True):
         u_name = st.text_input("您的姓名 *")
-        u_issue = st.radio("问题类型", ["系统有货-实物无", "系统无货-实物有", "库位停用-实物有货"], horizontal=True)
+        # 变更为垂直排列，更适合手机点击
+        u_issue = st.radio("问题类型", ["系统有货-实物无", "系统无货-实物有", "库位停用-实物有货"], horizontal=False)
         u_note = st.text_area("备注说明")
         
-        if st.form_submit_button("✅ 确认提交并同步系统", use_container_width=True):
+        submit_btn = st.form_submit_button("✅ 确认提交", use_container_width=True)
+        
+        if submit_btn:
             if not u_name:
-                st.error("请输入姓名后再提交")
+                st.error("请输入姓名！")
             else:
                 form_id = "1FAIpQLScdB2DC7CKJKly5vaaqTykfo5wrsdMSIgy3I01KvxAUY_emJQ"
-                url = f"https://docs.google.com/forms/d/e/{form_id}/formResponse"
+                url = f"https://docs.google.com/forms/e/{form_id}/formResponse"
                 payload = {"entry.1669427102": u_name, "entry.738175923": target_loc, "entry.1676630815": u_issue, "entry.914821861": u_note}
                 
+                # 严密的提交逻辑判断
                 try:
-                    # 显示提交中状态
-                    with st.spinner('同步中...'):
-                        requests.post(url, data=payload, timeout=5)
-                    
-                    # 关键：提交后的强提示
-                    st.toast(f"🎉 提交成功: {target_loc}", icon='✅')
-                    st.success(f"已收到您的反馈！库位 {target_loc} 的差异已同步至 Google Sheet。")
-                    
-                    # 停顿1.5秒让用户看清提示，然后重置页面防止重复提交
-                    time.sleep(1.5)
-                    st.rerun()
-                except:
-                    st.error("网络异常，提交失败，请重试。")
+                    response = requests.post(url, data=payload, timeout=8)
+                    if response.status_code == 200 or response.status_code == 0: # Google Form有时返回0也算成功
+                        st.toast(f"🎉 提交成功: {target_loc}", icon='✅')
+                        st.success("数据已成功同步！页面即将重置...")
+                        time.sleep(1.2)
+                        st.rerun()
+                    else:
+                        st.error(f"服务器返回错误 ({response.status_code})，请重试。")
+                except Exception as e:
+                    st.error(f"网络连接失败，请检查网络后再试。")
 
 st.markdown("<br><br><br><br>", unsafe_allow_html=True)
