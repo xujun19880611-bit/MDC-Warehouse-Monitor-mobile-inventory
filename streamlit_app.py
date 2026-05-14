@@ -3,10 +3,10 @@ import pandas as pd
 import requests
 import time
 
-# 1. 页面基本配置
-st.set_page_config(page_title="MDC 互动盘点 9.4", layout="centered")
+# 1. 页面配置
+st.set_page_config(page_title="MDC 互动盘点 9.5", layout="centered")
 
-# 2. 全局样式定制 - 彻底解决下拉框高度和字体匹配问题
+# 2. 全局样式定制 - 彻底修复下拉框显示不全问题
 st.markdown("""
     <style>
     [data-testid="column"] { width: calc(50% - 0.5rem) !important; flex: 1 1 calc(50% - 0.5rem) !important; }
@@ -28,21 +28,21 @@ st.markdown("""
     .disabled { background: #f5f5f5; color: #ff5252; }
     .bin-label { text-align: center; font-size: 11px; padding: 5px 0; color: #777; font-weight: bold; }
     
-    /* 下拉框高度与字体同步加大 */
+    /* 下拉框高度修复：不仅加大字体，还必须撑开容器高度和行高 */
     div[data-baseweb="select"] {
-        font-size: 24px !important;
+        font-size: 26px !important; /* 稍微再大一点 */
         font-weight: bold !important;
-        min-height: 60px !important; /* 强制增加外框高度 */
     }
-    /* 选中后的文字垂直居中 */
-    div[data-baseweb="select"] > div {
-        line-height: 40px !important;
-        height: auto !important;
+    /* 核心修复：强制下拉框本体高度 */
+    div[data-baseweb="select"] > div:first-child {
+        height: 70px !important; 
+        display: flex !important;
+        align-items: center !important;
     }
-    /* 下拉列表里的选项 */
+    /* 下拉列表项 */
     div[role="listbox"] div {
         font-size: 22px !important;
-        padding: 10px !important;
+        padding: 12px !important;
     }
     
     .big-font { font-size: 22px !important; font-weight: bold; color: #ff4b4b; text-align: center; margin: 15px 0; }
@@ -84,14 +84,12 @@ with c2:
 
 rack_code = f"{st.session_state.s_area}{sel_label}"
 
-# 翻页控制
 n1, n2, n3, n4 = st.columns([1, 2, 2, 1])
 with n2:
     if st.button("⬅️ 上页", use_container_width=True): st.session_state.offset = max(0, st.session_state.offset - 6)
 with n3:
     if st.button("下页 ➡️", use_container_width=True): st.session_state.offset += 6
 
-# 货架渲染
 is_a = (st.session_state.s_area == "A")
 lvls = ['50.0','40.0','30.0','20.0','10.0','0.0'] if is_a else ['40.0','30.0','20.0','10.0','0.0']
 sec_size = 3 if is_a else 2
@@ -131,37 +129,44 @@ for b in current_bins:
 target_loc = st.selectbox("⬇️ 库位选择列表", ["-- 请选择 --"] + available_locs, label_visibility="collapsed")
 
 # =========================================================
-# 🏗️ 下半部分：反馈提交（逻辑优化）
+# 🏗️ 下半部分：反馈提交（修复提交链接与Radio布局）
 # =========================================================
 if target_loc != "-- 请选择 --":
     st.info(f"✅ 当前选中：**{target_loc}**")
     with st.form("feedback_form", clear_on_submit=True):
         u_name = st.text_input("您的姓名 *")
-        # 变更为垂直排列，更适合手机点击
+        # 变更为垂直排列
         u_issue = st.radio("问题类型", ["系统有货-实物无", "系统无货-实物有", "库位停用-实物有货"], horizontal=False)
         u_note = st.text_area("备注说明")
         
-        submit_btn = st.form_submit_button("✅ 确认提交", use_container_width=True)
-        
-        if submit_btn:
+        if st.form_submit_button("✅ 确认提交", use_container_width=True):
             if not u_name:
                 st.error("请输入姓名！")
             else:
+                # ！！！核心修复：正确的 Google Form 提交地址 ！！！
                 form_id = "1FAIpQLScdB2DC7CKJKly5vaaqTykfo5wrsdMSIgy3I01KvxAUY_emJQ"
-                url = f"https://docs.google.com/forms/e/{form_id}/formResponse"
-                payload = {"entry.1669427102": u_name, "entry.738175923": target_loc, "entry.1676630815": u_issue, "entry.914821861": u_note}
+                url = f"https://docs.google.com/forms/d/e/{form_id}/formResponse"
                 
-                # 严密的提交逻辑判断
+                payload = {
+                    "entry.1669427102": u_name, 
+                    "entry.738175923": target_loc, 
+                    "entry.1676630815": u_issue, 
+                    "entry.914821861": u_note
+                }
+                
                 try:
-                    response = requests.post(url, data=payload, timeout=8)
-                    if response.status_code == 200 or response.status_code == 0: # Google Form有时返回0也算成功
+                    # 使用 timeout 确保不会死循环，并获取准确状态
+                    response = requests.post(url, data=payload, timeout=10)
+                    
+                    # 只要返回 200 或 0（某些网络下 Google Form 的特殊返回）即为成功
+                    if response.status_code == 200 or response.status_code == 0:
                         st.toast(f"🎉 提交成功: {target_loc}", icon='✅')
-                        st.success("数据已成功同步！页面即将重置...")
-                        time.sleep(1.2)
+                        st.success("数据同步完成！页面即将刷新...")
+                        time.sleep(1.5)
                         st.rerun()
                     else:
-                        st.error(f"服务器返回错误 ({response.status_code})，请重试。")
+                        st.error(f"提交失败：服务器返回错误 {response.status_code}")
                 except Exception as e:
-                    st.error(f"网络连接失败，请检查网络后再试。")
+                    st.error("网络异常，无法连接到提交服务器，请检查网络。")
 
 st.markdown("<br><br><br><br>", unsafe_allow_html=True)
