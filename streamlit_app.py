@@ -4,23 +4,31 @@ import requests
 import time
 
 # 1. Configurações da página
-st.set_page_config(page_title="MDC Inventário 9.8", layout="centered")
+st.set_page_config(page_title="MDC Inventário 9.7", layout="centered")
 
-# 2. Estilos Customizados (CSS)
+# 2. Estilos Customizados (CSS) - 强化手机端窄屏适配
 st.markdown("""
     <style>
+    /* 强制列容器不折行 */
     [data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         align-items: center !important;
     }
+    
+    /* 调整按钮样式，缩小体积以适应单行显示 */
     .stButton > button {
         width: 100% !important;
         padding: 5px 0px !important;
         font-size: 20px !important;
+        border-radius: 5px !important;
     }
+
     #MainMenu, header, footer {visibility: hidden;}
+    .block-container {padding-top: 1rem;}
+    
+    /* Layout das Estantes */
     .shelf-container { display: flex; justify-content: center; align-items: flex-start; padding: 10px 0; background: white; }
     .pillar { width: 10px; background: #3498db; margin: 0 4px; border-radius: 5px; align-self: stretch; min-height: 240px; }
     .bin-col { display: flex; flex-direction: column; width: 60px; }
@@ -34,8 +42,12 @@ st.markdown("""
     .empty { background: #fff; color: #ccc; }
     .disabled { background: #f5f5f5; color: #ff5252; }
     .bin-label { text-align: center; font-size: 11px; padding: 5px 0; color: #777; font-weight: bold; }
+    
+    /* Estilo do Seletor (Selectbox) - 修复高度 */
     div[data-baseweb="select"] { font-size: 24px !important; font-weight: bold !important; }
     div[data-baseweb="select"] > div:first-child { height: 65px !important; display: flex !important; align-items: center !important; }
+    div[role="listbox"] div { font-size: 22px !important; padding: 12px !important; }
+    
     .big-font { font-size: 20px !important; font-weight: bold; color: #ff4b4b; text-align: center; margin: 10px 0; }
     </style>
 """, unsafe_allow_html=True)
@@ -61,6 +73,7 @@ if 'offset' not in st.session_state: st.session_state.offset = 0
 # =========================================================
 st.markdown("<h3 style='text-align: center; margin-bottom: 0;'>🏗️ Vista de Estante (MDC)</h3>", unsafe_allow_html=True)
 
+# 库区和货架选择
 c1, c2 = st.columns(2)
 with c1:
     areas = sorted(df['仓库'].dropna().unique().tolist())
@@ -75,32 +88,22 @@ with c2:
 
 rack_code = f"{st.session_state.s_area}{sel_label}"
 
-# 获取当前货架的总列数，用于判断边界
-all_bins = sorted(df[(df['仓库'] == st.session_state.s_area) & (df['货架'] == st.session_state.s_rack)]['位置.1'].dropna().unique().tolist(), key=lambda x: int(float(x)), reverse=True)
-total_bins = len(all_bins)
-
-# 导航控制：带边界检测功能
+# 导航控制：极致空间压缩，确保图标在同一行
+# 使用 5 列布局，让图标居中且紧凑
 _, n_left, n_right, _ = st.columns([2, 1, 1, 2])
-
 with n_left:
-    # 如果 offset 为 0，左箭头变灰不可点
-    if st.button("⬅️", use_container_width=True, disabled=(st.session_state.offset <= 0)): 
+    if st.button("⬅️"): 
         st.session_state.offset = max(0, st.session_state.offset - 6)
-        st.rerun()
-
 with n_right:
-    # 如果再加 6 就超过总数了，右箭头变灰不可点
-    if st.button("➡️", use_container_width=True, disabled=(st.session_state.offset + 6 >= total_bins)): 
+    if st.button("➡️"): 
         st.session_state.offset += 6
-        st.rerun()
-
-# 截取当前显示的列
-current_bins = all_bins[st.session_state.offset : st.session_state.offset + 6]
 
 # 渲染货架
 is_a = (st.session_state.s_area == "A")
 lvls = ['50.0','40.0','30.0','20.0','10.0','0.0'] if is_a else ['40.0','30.0','20.0','10.0','0.0']
 sec_size = 3 if is_a else 2
+all_bins = sorted(df[(df['仓库'] == st.session_state.s_area) & (df['货架'] == st.session_state.s_rack)]['位置.1'].dropna().unique().tolist(), key=lambda x: int(float(x)), reverse=True)
+current_bins = all_bins[st.session_state.offset : st.session_state.offset + 6]
 
 shelf_html = '<div class="shelf-container">'
 for i, b_num in enumerate(current_bins):
@@ -140,10 +143,10 @@ target_loc = st.selectbox("Posição", ["-- Selecione --"] + available_locs, lab
 if target_loc != "-- Selecione --":
     st.info(f"📍 Selecionado: **{target_loc}**")
     with st.form("feedback_form", clear_on_submit=True):
-        u_name = st.text_input("Seu Nome *")
+        u_name = st.text_input("Seu Nome (Quem está a contar?) *")
         u_issue = st.radio("O que encontrou?", [
-            "Sistema com stock - Físico vazio", 
-            "Sistema vazio - Físico com carga", 
+            "Sistema diz que tem - Físico está VAZIO", 
+            "Sistema diz que está vazio - Físico TEM CARGA", 
             "Posição bloqueada mas tem carga física"
         ], horizontal=False)
         u_note = st.text_area("Notas Adicionais")
@@ -154,14 +157,22 @@ if target_loc != "-- Selecione --":
             else:
                 form_id = "1FAIpQLScdB2DC7CKJKly5vaaqTykfo5wrsdMSIgy3I01KvxAUY_emJQ"
                 url = f"https://docs.google.com/forms/d/e/{form_id}/formResponse"
-                payload = {"entry.1669427102": u_name, "entry.738175923": target_loc, "entry.1676630815": u_issue, "entry.914821861": u_note}
+                payload = {
+                    "entry.1669427102": u_name, 
+                    "entry.738175923": target_loc, 
+                    "entry.1676630815": u_issue, 
+                    "entry.914821861": u_note
+                }
+                
                 try:
                     response = requests.post(url, data=payload, timeout=10)
                     if response.status_code == 200 or response.status_code == 0:
-                        st.toast(f"✅ Enviado: {target_loc}")
+                        st.toast(f"✅ Enviado: {target_loc}", icon='🚀')
                         st.success("Sincronizado com sucesso!")
                         time.sleep(1)
                         st.rerun()
+                    else:
+                        st.error(f"Erro: {response.status_code}")
                 except:
                     st.error("Erro de rede.")
 
